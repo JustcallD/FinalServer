@@ -1,200 +1,133 @@
 import Screen from "../../models/master/screenMaster.model.js";
-import Role from "../../models/master/roleMaster.model.js";
 
 /**
- * @desc    Create a new screen
- * @route   POST /api/screens
- * @access  Public
+ * Create a new screen
  */
 const createScreen = async (req, res) => {
   try {
-    const { name, permissions = [] } = req.body;
+    const { screenName, isActive } = req.body;
 
-    // Validate screen name
-    if (!name) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Screen name is required" });
+    // Validate that screenName exists and is not empty
+    if (!screenName || screenName.trim() === "") {
+      return res.status(400).json({ message: "Screen name is required" });
     }
 
-    // Check if screen already exists
-    const existingScreen = await Screen.findOne({ name });
+    // Check if the screen already exists
+    const existingScreen = await Screen.findOne({ screenName });
     if (existingScreen) {
-      return res.status(400).json({
-        success: false,
-        message: "Screen with this name already exists",
-      });
+      return res.status(400).json({ message: "Screen already exists" });
     }
 
-    // Fetch superAdmin role if not already assigned
-    const superAdminRole = await Role.findOne({ name: "superAdmin" });
-    if (
-      superAdminRole &&
-      !permissions.some(
-        (p) => p.role.toString() === superAdminRole._id.toString()
-      )
-    ) {
-      permissions.push({
-        role: superAdminRole._id,
-        actions: ["read", "create", "update", "delete"],
-      });
-    }
-
-    // Create and save the new screen
-    const screen = new Screen({ name, permissions });
-    await screen.save();
-
-    res.status(201).json({
-      success: true,
-      message: "Screen created successfully",
-      data: screen,
+    // Create new screen
+    const newScreen = new Screen({
+      screenName,
+      isActive: isActive !== undefined ? isActive : true, // Default isActive to true if not provided
     });
+
+    await newScreen.save();
+
+    res
+      .status(201)
+      .json({ message: "Screen created successfully", screen: newScreen });
   } catch (error) {
-    console.error("Error creating screen:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    res
+      .status(500)
+      .json({ message: "Error creating screen", error: error.message });
   }
 };
 
 /**
- * @desc    Get all screens
- * @route   GET /api/screens
- * @access  Public
+ * Get all screens
  */
-const getScreens = async (req, res) => {
+const getAllScreens = async (req, res) => {
   try {
-    const screens = await Screen.find().populate("permissions.role", "name");
-
-    if (!screens.length) {
-      return res
-        .status(404)
-        .json({ success: false, message: "No screens found" });
-    }
-
-    res.status(200).json({ success: true, data: screens });
+    const screens = await Screen.find();
+    res.status(200).json(screens);
   } catch (error) {
-    console.error("Error fetching screens:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    res
+      .status(500)
+      .json({ message: "Error fetching screens", error: error.message });
   }
 };
 
 /**
- * @desc    Get a single screen by ID
- * @route   GET /api/screens/:id
- * @access  Public
+ * Get a single screen by ID
  */
 const getScreenById = async (req, res) => {
   try {
     const { id } = req.params;
+    const screen = await Screen.findById(id);
 
-    // Validate MongoDB ObjectId format
-    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid screen ID" });
-    }
-
-    const screen = await Screen.findById(id).populate(
-      "permissions.role",
-      "name"
-    );
     if (!screen) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Screen not found" });
+      return res.status(404).json({ message: "Screen not found" });
     }
 
-    res.status(200).json({ success: true, data: screen });
+    res.status(200).json(screen);
   } catch (error) {
-    console.error("Error fetching screen:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    res
+      .status(500)
+      .json({ message: "Error fetching screen", error: error.message });
   }
 };
 
 /**
- * @desc    Update a screen
- * @route   PUT /api/screens/:id
- * @access  Public
+ * Update a screen by ID
  */
 const updateScreen = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, permissions } = req.body;
+    const { screenName, isActive } = req.body;
 
-    // Validate MongoDB ObjectId format
-    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid screen ID" });
+    // Validate that screenName exists and is not empty
+    if (!screenName || screenName.trim() === "") {
+      return res.status(400).json({ message: "Screen name is required" });
     }
 
-    // Fetch existing screen
-    const screen = await Screen.findById(id);
-    if (!screen) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Screen not found" });
-    }
+    // Update the screen in the database
+    const updatedScreen = await Screen.findByIdAndUpdate(
+      id,
+      { screenName, isActive },
+      { new: true, runValidators: true }
+    );
 
-    // Fetch superAdmin role
-    const superAdminRole = await Role.findOne({ name: "superAdmin" });
-    if (
-      superAdminRole &&
-      !permissions.some(
-        (p) => p.role.toString() === superAdminRole._id.toString()
-      )
-    ) {
-      permissions.push({
-        role: superAdminRole._id,
-        actions: ["read", "create", "update", "delete"],
-      });
-    }
-
-    // Update screen
-    screen.name = name || screen.name;
-    screen.permissions = permissions || screen.permissions;
-    await screen.save();
-
-    res.status(200).json({
-      success: true,
-      message: "Screen updated successfully",
-      data: screen,
-    });
-  } catch (error) {
-    console.error("Error updating screen:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
-  }
-};
-
-/**
- * @desc    Delete a screen
- * @route   DELETE /api/screens/:id
- * @access  Public
- */
-const deleteScreen = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Validate MongoDB ObjectId format
-    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Invalid screen ID" });
-    }
-
-    const screen = await Screen.findByIdAndDelete(id);
-    if (!screen) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Screen not found" });
+    if (!updatedScreen) {
+      return res.status(404).json({ message: "Screen not found" });
     }
 
     res
       .status(200)
-      .json({ success: true, message: "Screen deleted successfully" });
+      .json({ message: "Screen updated successfully", screen: updatedScreen });
   } catch (error) {
-    console.error("Error deleting screen:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    res
+      .status(500)
+      .json({ message: "Error updating screen", error: error.message });
   }
 };
 
-export { deleteScreen, updateScreen, getScreenById, getScreens, createScreen };
+/**
+ * Delete a screen by ID
+ */
+const deleteScreen = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deletedScreen = await Screen.findByIdAndDelete(id);
+
+    if (!deletedScreen) {
+      return res.status(404).json({ message: "Screen not found" });
+    }
+
+    res.status(200).json({ message: "Screen deleted successfully" });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Error deleting screen", error: error.message });
+  }
+};
+
+export {
+  createScreen,
+  getAllScreens,
+  getScreenById,
+  updateScreen,
+  deleteScreen,
+};

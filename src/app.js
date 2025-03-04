@@ -14,9 +14,6 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cors(corsOptions));
 app.use(cookieParser());
 
-/**
- * Register routes using an object for O(1) lookups
- */
 const routeMap = {}; // Object for storing routes with O(1) access
 
 const registerRoutes = (routes, basePath = "") => {

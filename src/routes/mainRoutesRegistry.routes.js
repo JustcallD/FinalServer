@@ -4,20 +4,22 @@ import providerUserRouter from "./provider/providerUser.routes.js";
 import tenantRouter from "./tenant/tenant.routes.js";
 
 const mainRoutesRegistryObject = {
-  "/provider": {
+  "/providers": {
     router: providerRouter,
     // middleware: [authMiddleware, logMiddleware],
   },
-  "/provider-user": { router: providerUserRouter },
+  "/provider-users": {
+    router: providerUserRouter,
+  },
   "/master": {
     router: masterRouter,
     children: {
-      "/modules": { router: masterRouter }, // Handles /master/modules
-      "/roles": { router: masterRouter },   // Handles /master/roles
-      "/screens": { router: masterRouter },   // Handles /master/roles
+      "/modules": { router: masterRouter },
+      "/roles": { router: masterRouter },
+      "/screens": { router: masterRouter },
     },
-  }, // <- Corrected bracket placement
-  "/tenant": {
+  },
+  "/tenants": {
     router: tenantRouter,
     // children: {
     //   "/users": { router: tenantUserRouter },

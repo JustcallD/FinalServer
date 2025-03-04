@@ -1,161 +1,329 @@
 import Module from "../../models/master/moduleMaster.model.js";
 import Screen from "../../models/master/screenMaster.model.js";
+import mongoose from "mongoose";
 
+// Utility function for validating MongoDB ObjectId
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
+// Centralized error response handler
+const handleErrorResponse = (
+  res,
+  error,
+  customMessage = "Internal server error"
+) => {
+  console.error(error);
+  return res.status(500).json({
+    success: false,
+    message: customMessage,
+    error: process.env.NODE_ENV === "development" ? error.message : undefined,
+  });
+};
 
 /**
- * @desc    Create a new module
+ * Create a new module
  * @route   POST /api/modules
  * @access  Public
  */
-export const createModule = async (req, res) => {
+const createModule = async (req, res) => {
   try {
-    const { name, screens } = req.body;
+    const { name, screens = [] } = req.body;
 
-    // Check if module name is provided
-    if (!name) {
-      return res.status(400).json({ success: false, message: "Module name is required" });
+    // Validate input
+    if (!name || name.trim() === "") {
+      return res.status(400).json({
+        success: false,
+        message: "Module name is required and cannot be empty",
+      });
     }
 
-    // Check if module already exists
-    const existingModule = await Module.findOne({ name });
+    // Check if module already exists (case-insensitive)
+    const existingModule = await Module.findOne({
+      name: { $regex: new RegExp(`^${name}$`, "i") },
+    });
     if (existingModule) {
-      return res.status(400).json({ success: false, message: "Module with this name already exists" });
+      return res.status(409).json({
+        success: false,
+        message: "A module with this name already exists",
+      });
     }
 
-    // Validate screens (if provided)
-    if (screens && screens.length > 0) {
-      for (const screenId of screens) {
-        if (!screenId.match(/^[0-9a-fA-F]{24}$/)) {
-          return res.status(400).json({ success: false, message: `Invalid screen ID: ${screenId}` });
-        }
-        const screenExists = await Screen.findById(screenId);
-        if (!screenExists) {
-          return res.status(404).json({ success: false, message: `Screen not found with ID: ${screenId}` });
-        }
+    // Validate screens
+    if (screens.length > 0) {
+      const invalidScreenIds = screens.filter(
+        (screenId) => !isValidObjectId(screenId)
+      );
+      if (invalidScreenIds.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid screen IDs: ${invalidScreenIds.join(", ")}`,
+        });
+      }
+
+      // Check if all screens exist
+      const existingScreens = await Screen.find({
+        _id: { $in: screens },
+      });
+      if (existingScreens.length !== screens.length) {
+        const foundScreenIds = existingScreens.map((screen) =>
+          screen._id.toString()
+        );
+        const missingScreens = screens.filter(
+          (id) => !foundScreenIds.includes(id)
+        );
+        return res.status(404).json({
+          success: false,
+          message: `Screens not found: ${missingScreens.join(", ")}`,
+        });
       }
     }
 
     // Create new module
-    const module = new Module({ name, screens });
+    const module = new Module({
+      name: name.trim(),
+      screens,
+    });
     await module.save();
 
-    res.status(201).json({ success: true, message: "Module created successfully", data: module });
+    res.status(201).json({
+      success: true,
+      message: "Module created successfully",
+      data: module,
+    });
   } catch (error) {
-    console.error("Error creating module:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    return handleErrorResponse(res, error);
   }
 };
 
 /**
- * @desc    Get all modules
+ * Get all modules
  * @route   GET /api/modules
  * @access  Public
  */
-export const getModules = async (req, res) => {
+const getAllModules = async (req, res) => {
   try {
-    const modules = await Module.find().populate("screens");
+    const {
+      page = 1,
+      limit = 10,
+      search = "",
+      sortBy = "createdAt",
+      sortOrder = "desc",
+    } = req.query;
 
+    // Build search query
+    const searchQuery = search
+      ? { name: { $regex: search, $options: "i" } }
+      : {};
+
+    // Build sort options
+    const sortOptions = {
+      [sortBy]: sortOrder === "desc" ? -1 : 1,
+    };
+
+    // Pagination
+    const skip = (page - 1) * limit;
+
+    // Fetch modules with pagination and population
+    const [modules, total] = await Promise.all([
+      Module.find(searchQuery)
+        .populate("screens")
+        .sort(sortOptions)
+        .skip(skip)
+        .limit(Number(limit)),
+      Module.countDocuments(searchQuery),
+    ]);
+
+    // Handle no modules found
     if (modules.length === 0) {
-      return res.status(404).json({ success: false, message: "No modules found" });
+      return res.status(404).json({
+        success: false,
+        message: "No modules found",
+      });
     }
 
-    res.status(200).json({ success: true, data: modules });
+    res.status(200).json({
+      success: true,
+      data: modules,
+      pagination: {
+        total,
+        page: Number(page),
+        pages: Math.ceil(total / limit),
+        limit: Number(limit),
+      },
+    });
   } catch (error) {
-    console.error("Error fetching modules:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    return handleErrorResponse(res, error);
   }
 };
 
 /**
- * @desc    Get a single module by ID
- * @route   GET /api/modules/:id
+ * Get a single module by ID
+ * @route   GET /api/modules/:moduleId
  * @access  Public
  */
-export const getModuleById = async (req, res) => {
+const getModuleById = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { moduleId } = req.params;
 
-    // Validate ID format
-    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
-      return res.status(400).json({ success: false, message: "Invalid module ID" });
+    // Validate ID
+    if (!isValidObjectId(moduleId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid module ID",
+      });
     }
 
-    const module = await Module.findById(id).populate("screens");
+    const module = await Module.findById(moduleId).populate("screens");
     if (!module) {
-      return res.status(404).json({ success: false, message: "Module not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Module not found",
+      });
     }
 
-    res.status(200).json({ success: true, data: module });
+    res.status(200).json({
+      success: true,
+      data: module,
+    });
   } catch (error) {
-    console.error("Error fetching module:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    return handleErrorResponse(res, error);
   }
 };
 
 /**
- * @desc    Update a module
- * @route   PUT /api/modules/:id
+ * Update a module
+ * @route   PUT /api/modules/:moduleId
  * @access  Public
  */
-export const updateModule = async (req, res) => {
+const updateModule = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { moduleId } = req.params;
     const { name, screens } = req.body;
 
-    // Validate ID format
-    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
-      return res.status(400).json({ success: false, message: "Invalid module ID" });
+    // Validate ID
+    if (!isValidObjectId(moduleId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid module ID",
+      });
+    }
+
+    // Validate input
+    if (!name || name.trim() === "") {
+      return res.status(400).json({
+        success: false,
+        message: "Module name is required and cannot be empty",
+      });
     }
 
     // Validate screens (if provided)
     if (screens && screens.length > 0) {
-      for (const screenId of screens) {
-        if (!screenId.match(/^[0-9a-fA-F]{24}$/)) {
-          return res.status(400).json({ success: false, message: `Invalid screen ID: ${screenId}` });
-        }
-        const screenExists = await Screen.findById(screenId);
-        if (!screenExists) {
-          return res.status(404).json({ success: false, message: `Screen not found with ID: ${screenId}` });
-        }
+      const invalidScreenIds = screens.filter(
+        (screenId) => !isValidObjectId(screenId)
+      );
+      if (invalidScreenIds.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid screen IDs: ${invalidScreenIds.join(", ")}`,
+        });
+      }
+
+      // Check if all screens exist
+      const existingScreens = await Screen.find({
+        _id: { $in: screens },
+      });
+      if (existingScreens.length !== screens.length) {
+        const foundScreenIds = existingScreens.map((screen) =>
+          screen._id.toString()
+        );
+        const missingScreens = screens.filter(
+          (id) => !foundScreenIds.includes(id)
+        );
+        return res.status(404).json({
+          success: false,
+          message: `Screens not found: ${missingScreens.join(", ")}`,
+        });
       }
     }
 
-    const module = await Module.findByIdAndUpdate(id, { name, screens }, { new: true }).populate("screens");
-
-    if (!module) {
-      return res.status(404).json({ success: false, message: "Module not found" });
+    // Check if module exists before updating
+    const existingModule = await Module.findById(moduleId);
+    if (!existingModule) {
+      return res.status(404).json({
+        success: false,
+        message: "Module not found",
+      });
     }
 
-    res.status(200).json({ success: true, message: "Module updated successfully", data: module });
+    // Check for duplicate name (case-insensitive)
+    const duplicateModule = await Module.findOne({
+      name: { $regex: new RegExp(`^${name}$`, "i") },
+      _id: { $ne: moduleId },
+    });
+    if (duplicateModule) {
+      return res.status(409).json({
+        success: false,
+        message: "A module with this name already exists",
+      });
+    }
+
+    // Update module
+    const updatedModule = await Module.findByIdAndUpdate(
+      moduleId,
+      {
+        name: name.trim(),
+        screens: screens || existingModule.screens,
+      },
+      { new: true, runValidators: true }
+    ).populate("screens");
+
+    res.status(200).json({
+      success: true,
+      message: "Module updated successfully",
+      data: updatedModule,
+    });
   } catch (error) {
-    console.error("Error updating module:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    return handleErrorResponse(res, error);
   }
 };
 
 /**
- * @desc    Delete a module
- * @route   DELETE /api/modules/:id
+ * Delete a module
+ * @route   DELETE /api/modules/:moduleId
  * @access  Public
  */
-export const deleteModule = async (req, res) => {
+const deleteModule = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { moduleId } = req.params;
 
-    // Validate ID format
-    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
-      return res.status(400).json({ success: false, message: "Invalid module ID" });
+    // Validate ID
+    if (!isValidObjectId(moduleId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid module ID",
+      });
     }
 
-    const module = await Module.findByIdAndDelete(id);
+    const module = await Module.findByIdAndDelete(moduleId);
     if (!module) {
-      return res.status(404).json({ success: false, message: "Module not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Module not found",
+      });
     }
 
-    res.status(200).json({ success: true, message: "Module deleted successfully" });
+    res.status(200).json({
+      success: true,
+      message: "Module deleted successfully",
+    });
   } catch (error) {
-    console.error("Error deleting module:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
+    return handleErrorResponse(res, error);
   }
+};
+
+export {
+  createModule,
+  getAllModules,
+  getModuleById,
+  updateModule,
+  deleteModule,
 };

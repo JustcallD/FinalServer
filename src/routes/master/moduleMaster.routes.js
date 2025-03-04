@@ -1,20 +1,19 @@
 import express from "express";
-import {   createModule,
-    getModules,
-    getModuleById,
-    updateModule,
-    deleteModule, } from "../../controllers/master/moduleMaster.controller.js";
-
-
+import {   
+  createModule,
+  getAllModules,
+  getModuleById,
+  updateModule,
+  deleteModule 
+} from "../../controllers/master/moduleMaster.controller.js";
 
 const moduleMasterRouter = express.Router();
 
-// Module Routes
-moduleMasterRouter.post("/modules", createModule);
-moduleMasterRouter.get("/modules", getModules);
-moduleMasterRouter.get("/modules/:id", getModuleById);
-moduleMasterRouter.put("/modules/:id", updateModule);
-moduleMasterRouter.delete("/modules/:id", deleteModule);
-
+// Module Routes - Following RESTful conventions
+moduleMasterRouter.post("/", createModule);
+moduleMasterRouter.get("/", getAllModules);
+moduleMasterRouter.get("/:moduleId", getModuleById);
+moduleMasterRouter.put("/:moduleId", updateModule);
+moduleMasterRouter.delete("/:moduleId", deleteModule);
 
 export default moduleMasterRouter;
