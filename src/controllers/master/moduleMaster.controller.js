@@ -1,322 +1,123 @@
 import Module from "../../models/master/moduleMaster.model.js";
 import Screen from "../../models/master/screenMaster.model.js";
-import mongoose from "mongoose";
 
-// Utility function for validating MongoDB ObjectId
-const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
-
-// Centralized error response handler
-const handleErrorResponse = (
-  res,
-  error,
-  customMessage = "Internal server error"
-) => {
-  console.error(error);
-  return res.status(500).json({
-    success: false,
-    message: customMessage,
-    error: process.env.NODE_ENV === "development" ? error.message : undefined,
-  });
-};
-
-/**
- * Create a new module
- * @route   POST /api/modules
- * @access  Public
- */
+// Create a new module
 const createModule = async (req, res) => {
   try {
-    const { name, screens = [] } = req.body;
+    const { name, screens } = req.body;
+    console.log("screens ", screens);
+    console.log("name ", name);
 
-    // Validate input
-    if (!name || name.trim() === "") {
-      return res.status(400).json({
-        success: false,
-        message: "Module name is required and cannot be empty",
-      });
-    }
+    // Validate screen IDs by checking if they exist in the screenMaster collection
+    const validScreens = await Screen.find({ _id: { $in: screens } });
+    // if (validScreens.length !== screens.length) {
+    //   return res
+    //     .status(400)
+    //     .json({ message: "One or more screens are invalid." });
+    // }
 
-    // Check if module already exists (case-insensitive)
-    const existingModule = await Module.findOne({
-      name: { $regex: new RegExp(`^${name}$`, "i") },
-    });
+    console.log("validScreens ", validScreens);
+
+    // Check if a module with the same name already exists
+    const existingModule = await Module.findOne({ name });
     if (existingModule) {
-      return res.status(409).json({
-        success: false,
-        message: "A module with this name already exists",
-      });
+      return res.status(400).json({ message: "Module already exists" });
     }
 
-    // Validate screens
-    if (screens.length > 0) {
-      const invalidScreenIds = screens.filter(
-        (screenId) => !isValidObjectId(screenId)
-      );
-      if (invalidScreenIds.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid screen IDs: ${invalidScreenIds.join(", ")}`,
-        });
-      }
-
-      // Check if all screens exist
-      const existingScreens = await Screen.find({
-        _id: { $in: screens },
-      });
-      if (existingScreens.length !== screens.length) {
-        const foundScreenIds = existingScreens.map((screen) =>
-          screen._id.toString()
-        );
-        const missingScreens = screens.filter(
-          (id) => !foundScreenIds.includes(id)
-        );
-        return res.status(404).json({
-          success: false,
-          message: `Screens not found: ${missingScreens.join(", ")}`,
-        });
-      }
-    }
-
-    // Create new module
-    const module = new Module({
-      name: name.trim(),
-      screens,
+    // Create a new module
+    const newModule = new Module({
+      name,
+      screens, // Screens are passed as ObjectIds
     });
-    await module.save();
 
-    res.status(201).json({
-      success: true,
-      message: "Module created successfully",
-      data: module,
-    });
+    // Save the module to the database
+    await newModule.save();
+    return res
+      .status(201)
+      .json({ message: "Module created successfully", newModule });
   } catch (error) {
-    return handleErrorResponse(res, error);
+    console.error(error);
+    return res.status(500).json({ message: "Server error", error });
   }
 };
 
-/**
- * Get all modules
- * @route   GET /api/modules
- * @access  Public
- */
+// Get all modules
 const getAllModules = async (req, res) => {
   try {
-    const {
-      page = 1,
-      limit = 10,
-      search = "",
-      sortBy = "createdAt",
-      sortOrder = "desc",
-    } = req.query;
-
-    // Build search query
-    const searchQuery = search
-      ? { name: { $regex: search, $options: "i" } }
-      : {};
-
-    // Build sort options
-    const sortOptions = {
-      [sortBy]: sortOrder === "desc" ? -1 : 1,
-    };
-
-    // Pagination
-    const skip = (page - 1) * limit;
-
-    // Fetch modules with pagination and population
-    const [modules, total] = await Promise.all([
-      Module.find(searchQuery)
-        .populate("screens")
-        .sort(sortOptions)
-        .skip(skip)
-        .limit(Number(limit)),
-      Module.countDocuments(searchQuery),
-    ]);
-
-    // Handle no modules found
-    if (modules.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "No modules found",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      data: modules,
-      pagination: {
-        total,
-        page: Number(page),
-        pages: Math.ceil(total / limit),
-        limit: Number(limit),
-      },
-    });
+    const modules = await Module.find().populate("screens");
+    return res.status(200).json(modules);
   } catch (error) {
-    return handleErrorResponse(res, error);
+    console.error(error);
+    return res.status(500).json({ message: "Server error", error });
   }
 };
 
-/**
- * Get a single module by ID
- * @route   GET /api/modules/:moduleId
- * @access  Public
- */
+// Get a module by ID
 const getModuleById = async (req, res) => {
   try {
-    const { moduleId } = req.params;
-
-    // Validate ID
-    if (!isValidObjectId(moduleId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid module ID",
-      });
-    }
+    const moduleId = req.params.id;
 
     const module = await Module.findById(moduleId).populate("screens");
     if (!module) {
-      return res.status(404).json({
-        success: false,
-        message: "Module not found",
-      });
+      return res.status(404).json({ message: "Module not found" });
     }
 
-    res.status(200).json({
-      success: true,
-      data: module,
-    });
+    return res.status(200).json(module);
   } catch (error) {
-    return handleErrorResponse(res, error);
+    console.error(error);
+    return res.status(500).json({ message: "Server error", error });
   }
 };
 
-/**
- * Update a module
- * @route   PUT /api/modules/:moduleId
- * @access  Public
- */
+// Update a module
 const updateModule = async (req, res) => {
   try {
-    const { moduleId } = req.params;
+    const moduleId = req.params.id;
     const { name, screens } = req.body;
 
-    // Validate ID
-    if (!isValidObjectId(moduleId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid module ID",
-      });
+    // Validate screen IDs by checking if they exist in the screenMaster collection
+    const validScreens = await Screen.find({ _id: { $in: screens } });
+    if (validScreens.length !== screens.length) {
+      return res
+        .status(400)
+        .json({ message: "One or more screens are invalid." });
     }
 
-    // Validate input
-    if (!name || name.trim() === "") {
-      return res.status(400).json({
-        success: false,
-        message: "Module name is required and cannot be empty",
-      });
-    }
-
-    // Validate screens (if provided)
-    if (screens && screens.length > 0) {
-      const invalidScreenIds = screens.filter(
-        (screenId) => !isValidObjectId(screenId)
-      );
-      if (invalidScreenIds.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid screen IDs: ${invalidScreenIds.join(", ")}`,
-        });
-      }
-
-      // Check if all screens exist
-      const existingScreens = await Screen.find({
-        _id: { $in: screens },
-      });
-      if (existingScreens.length !== screens.length) {
-        const foundScreenIds = existingScreens.map((screen) =>
-          screen._id.toString()
-        );
-        const missingScreens = screens.filter(
-          (id) => !foundScreenIds.includes(id)
-        );
-        return res.status(404).json({
-          success: false,
-          message: `Screens not found: ${missingScreens.join(", ")}`,
-        });
-      }
-    }
-
-    // Check if module exists before updating
-    const existingModule = await Module.findById(moduleId);
-    if (!existingModule) {
-      return res.status(404).json({
-        success: false,
-        message: "Module not found",
-      });
-    }
-
-    // Check for duplicate name (case-insensitive)
-    const duplicateModule = await Module.findOne({
-      name: { $regex: new RegExp(`^${name}$`, "i") },
-      _id: { $ne: moduleId },
-    });
-    if (duplicateModule) {
-      return res.status(409).json({
-        success: false,
-        message: "A module with this name already exists",
-      });
-    }
-
-    // Update module
+    // Find and update the module by ID
     const updatedModule = await Module.findByIdAndUpdate(
       moduleId,
-      {
-        name: name.trim(),
-        screens: screens || existingModule.screens,
-      },
-      { new: true, runValidators: true }
-    ).populate("screens");
+      { name, screens }, // Update name and screens
+      { new: true } // Return the updated module
+    );
 
-    res.status(200).json({
-      success: true,
-      message: "Module updated successfully",
-      data: updatedModule,
-    });
+    if (!updatedModule) {
+      return res.status(404).json({ message: "Module not found" });
+    }
+
+    return res
+      .status(200)
+      .json({ message: "Module updated successfully", updatedModule });
   } catch (error) {
-    return handleErrorResponse(res, error);
+    console.error(error);
+    return res.status(500).json({ message: "Server error", error });
   }
 };
 
-/**
- * Delete a module
- * @route   DELETE /api/modules/:moduleId
- * @access  Public
- */
+// Delete a module
 const deleteModule = async (req, res) => {
   try {
-    const { moduleId } = req.params;
+    const moduleId = req.params.id;
 
-    // Validate ID
-    if (!isValidObjectId(moduleId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid module ID",
-      });
+    // Find and delete the module by ID
+    const deletedModule = await Module.findByIdAndDelete(moduleId);
+    if (!deletedModule) {
+      return res.status(404).json({ message: "Module not found" });
     }
 
-    const module = await Module.findByIdAndDelete(moduleId);
-    if (!module) {
-      return res.status(404).json({
-        success: false,
-        message: "Module not found",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "Module deleted successfully",
-    });
+    return res.status(200).json({ message: "Module deleted successfully" });
   } catch (error) {
-    return handleErrorResponse(res, error);
+    console.error(error);
+    return res.status(500).json({ message: "Server error", error });
   }
 };
 

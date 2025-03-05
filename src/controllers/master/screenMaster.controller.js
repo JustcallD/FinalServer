@@ -1,8 +1,6 @@
 import Screen from "../../models/master/screenMaster.model.js";
 
-/**
- * Create a new screen
- */
+
 const createScreen = async (req, res) => {
   try {
     const { screenName, isActive } = req.body;
@@ -21,7 +19,7 @@ const createScreen = async (req, res) => {
     // Create new screen
     const newScreen = new Screen({
       screenName,
-      isActive: isActive !== undefined ? isActive : true, // Default isActive to true if not provided
+      isActive: isActive !== undefined ? isActive : true, 
     });
 
     await newScreen.save();
